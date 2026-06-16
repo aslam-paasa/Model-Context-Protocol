@@ -1,14 +1,64 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 /* 1. Create server instance */
 const server = new McpServer({
-  name: "studentportal",
+  name: "codersgyan",
   version: "1.0.0",
 });
 
-/* 2. Implementing tool execution */
+/* 2. Implementing Prompt Template to MCP */
+server.registerPrompt(
+  "greeting-example",
+  {
+    title: "Greeting template",
+    description: "A simple greeting prompt template",
+    argsSchema: {
+      name: z.string().describe("Name to include in greeting."),
+    },
+  },
+  async ({ name }): Promise<GetPromptResult> => {
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Please greet ${name} in a friendly manner and say hola everytime.`,
+          },
+        },
+      ],
+    };
+  },
+);
+
+server.registerPrompt(
+  "student_list",
+  {
+    title: "Student List",
+    description: "A simple template to get student list",
+    argsSchema: {
+      limit: z.string().describe("The number of students."),
+    },
+  },
+  async ({ limit }): Promise<GetPromptResult> => {
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Give me the list of enrolled students in LMS. Give only ${limit} students.`,
+          },
+        },
+      ],
+    };
+  },
+);
+
+/* 3. Implementing tool execution */
 server.registerTool(
   "get_all_students",
   {
@@ -20,9 +70,8 @@ server.registerTool(
         .describe("Maximum number of students to return."),
     },
   },
-  
-  async ({ limit }) => {
 
+  async ({ limit }) => {
     const today = new Date().toISOString().split("T")[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
     const lastWeek = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
@@ -114,23 +163,21 @@ server.registerTool(
   },
 );
 
-
-/* 3. Running the Server: npm run build */
+/* 4. Running the Server: npm run build */
 async function main() {
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("Student Portal MCP Server running on stdio");
-  }
-  
-  main().catch((error) => {
-    console.error("Fatal error in main():", error);
-    process.exit(1);
-  });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("Codersgyan MCP Server running on stdio");
+}
 
+main().catch((error) => {
+  console.error("Fatal error in main():", error);
+  process.exit(1);
+});
 
 /**
- * 4. Register your server with Claude Desktop:
- *    - Open VS Code 
+ * 5. Register your server with Claude Desktop:
+ *    - Open VS Code
  *    - Go to terminal & run the file: code $env:AppData\Claude\claude_desktop_config.json
  *    - New file opened:
  *      {
@@ -144,13 +191,13 @@ async function main() {
  *    - Edit the file:
  *      {
  *        "mcpServers": {
- *          "studentportal": {
+ *          "codersgyan": {
  *            "command": "node",
  *            "args": ["C:\Users\aslam\OneDrive\Documents\Bootcamp-1.0\Week-15\Master-the-Art-of-Building-AI-Products\17-Working-with-MCP\02-MCP-Implementation\server\dist\index.js"]
  *          }
  *        }
  *      }
  *    - Restart Claude & check connectors
- * 
+ *
  * Note: Similarly we can use MCP in other apps like Cursor App.
-*/
+ */
