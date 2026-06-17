@@ -33,8 +33,11 @@ class MCPClient {
     });
   }
 
-  async connectToServer(serverScriptPath: string) {
-    try {
+  async connectToServer(
+    serverScriptPath: string,
+    serverType: "local" | "remote",
+  ) {
+    if (serverType === "local") {
       const isJs = serverScriptPath.endsWith(".js");
       const isPy = serverScriptPath.endsWith(".py");
 
@@ -52,10 +55,16 @@ class MCPClient {
         command,
         args: [serverScriptPath],
       });
+    } else if (serverType === "remote") {
+      const url = new URL(serverScriptPath);
+      this.transport = new StreamableHTTPClientTransport(url);
+    }
 
+    try {
       await this.mcp.connect(this.transport as Transport);
 
       const toolsResult = await this.mcp.listTools();
+
       this.tools = toolsResult.tools.map((tool) => {
         return {
           type: "function",
@@ -76,8 +85,101 @@ class MCPClient {
       throw e;
     }
   }
-}
 
+  async processQuery(query: string) {
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are a smart chatbot. You have access to following mcp tools:
+          ${this.tools.map((tool) => tool.function.name).join("\n")}`,
+      },
+      {
+        role: "user",
+        content: query,
+      },
+    ];
+
+    const response = await this.openai.chat.completions.create({
+      model: "gpt-5.1",
+      messages,
+      tools: this.tools,
+    });
+
+    const finalText = [];
+
+    const choice = response.choices[0];
+    const assistantMessage = choice.message;
+
+    if (assistantMessage.content) {
+      finalText.push(assistantMessage.content);
+    }
+
+    if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+      messages.push(assistantMessage);
+
+      for (const toolCall of assistantMessage.tool_calls) {
+        if (toolCall.type !== "function") continue;
+
+        const toolName = toolCall.function.name;
+        const toolArgs = JSON.parse(toolCall.function.arguments);
+
+        finalText.push(
+          `[Calling tool ${toolName} with args ${toolCall.function.arguments}]`,
+        );
+
+        const result = await this.mcp.callTool({
+          name: toolName,
+          arguments: toolArgs,
+        });
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result.content),
+        });
+      }
+
+      const followupResponse = await this.openai.chat.completions.create({
+        model: "gpt-5.1",
+        messages,
+      });
+
+      if (followupResponse.choices[0].message.content) {
+        finalText.push(followupResponse.choices[0].message.content);
+      }
+    }
+
+    return finalText.join("\n");
+  }
+
+  async chatLoop() {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    try {
+      console.log("\nMCP Client Started!");
+      console.log("Type your queries or '/bye' to exit.");
+
+      while (true) {
+        const message = await rl.question("\nQuery: ");
+        if (message.toLowerCase() === "/bye") {
+          break;
+        }
+
+        const response = await this.processQuery(message);
+        console.log("\n" + response);
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  async cleanup() {
+    await this.mcp.close();
+  }
+}
 
 async function main() {
   if (process.argv.length < 3) {
@@ -88,11 +190,14 @@ async function main() {
   const mcpClient = new MCPClient();
 
   try {
-    await mcpClient.connectToServer(process.argv[2]);
+    await mcpClient.connectToServer(process.argv[2], "remote");
+    await mcpClient.chatLoop();
   } catch (e) {
     console.error("Error:", e);
+    await mcpClient.cleanup();
     process.exit(1);
   } finally {
+    await mcpClient.cleanup();
     process.exit(0);
   }
 }
