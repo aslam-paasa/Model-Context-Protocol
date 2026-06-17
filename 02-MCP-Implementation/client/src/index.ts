@@ -33,10 +33,7 @@ class MCPClient {
     });
   }
 
-  async connectToServer(
-    serverScriptPath: string,
-    serverType: "local" | "remote",
-  ) {
+  async connectToServer(serverScriptPath: string, serverType: "local" | "remote") {
     if (serverType === "local") {
       const isJs = serverScriptPath.endsWith(".js");
       const isPy = serverScriptPath.endsWith(".py");
